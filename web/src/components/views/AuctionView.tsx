@@ -43,7 +43,7 @@ const soldOf = (d: AuctionDetail, sold: number, of: number) => d.mode === "buyba
 // The round's story in a sentence, by market.
 function story(d: AuctionDetail, sold: number): string {
   if (d.state === "CANCELLED") return "The round was cancelled before it cleared. Every deposit was refunded in full.";
-  if (!d.result) return "Bids stay sealed until they open together. Nobody, the operator included, can read a price before then.";
+  if (!d.result) return Date.now() / 1000 < d.release ? "Bids stay sealed until they open together. Nobody, the operator included, can read a price before then." : "The time lock has opened: anyone can decrypt the frozen bids now. This service hasn't published the result yet.";
   if (sold === 0) return d.mode === "launch" ? "Bids didn't reach the minimum raise, so nothing was sold and every deposit was refunded." : d.mode === "otc" ? "The buyer's highest price was below the seller's lowest, so there was no trade. Both deposits were refunded." : SELLS(d.mode) ? "No offer was accepted. Every deposit was refunded, and the budget went back to the buyer." : "No bid won. Every deposit was refunded.";
   if (d.mode === "drop") return "Each lot went to its highest bid at or above the reserve. Winners paid their bid; everyone else got their deposit back.";
   if (d.mode === "otc") return "The buyer's limit met the seller's, so they traded at the midpoint of the two.";
@@ -129,6 +129,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
   return (
     <div className="flex flex-col gap-2 fit:min-h-0 fit:flex-1" data-testid="terminal">
       <Ribbon d={d} live={live} toClose={toClose} sold={sold} of={of} paid={paid} price={price} priceWord={priceWord} />
+      {d.owed && <div className="rounded-[14px] bg-[#c94f4f1a] px-4 py-3 text-[14px] ring-1 ring-[#c94f4f55]" data-testid="owed-banner"><span className="font-medium">{d.owed.count} {d.owed.count === 1 ? "refund" : "refunds"} ({zats(d.owed.zats)} zats) not paid yet.</span> <span className="text-app-muted">The signers couldn't pay {d.owed.count === 1 ? "it" : "them"} automatically, so {d.owed.count === 1 ? "it waits" : "they wait"} for {d.owed.count === 1 ? "its owner" : "their owners"} to claim. The rest of the round is settled.</span> <a href="/mine/" className="underline underline-offset-4">Claim with your recovery file in My bids</a></div>}
       {(d as any).stopped && <div className="rounded-[14px] bg-[#c94f4f1a] px-4 py-3 text-[14px] ring-1 ring-[#c94f4f55]" data-testid="stopped-banner"><span className="font-medium">This round stopped before it paid out.</span> <span className="text-app-muted">Every deposit in it is refundable with its bidder's recovery file.</span> <a href="/mine/" className="underline underline-offset-4">Open your recovery file in My bids</a></div>}
       {stale && <ErrorLine>Updates unavailable right now; showing the last loaded record. <button className="underline" onClick={retry}>Retry</button></ErrorLine>}
       <div className={cx("grid gap-2 fit:min-h-0 fit:flex-1 lg:grid-rows-[minmax(0,1.4fr)_minmax(0,1fr)]", live ? "lg:grid-cols-[minmax(0,1fr)_240px_420px]" : "lg:grid-cols-[minmax(0,1fr)_264px_336px]")}>
@@ -207,7 +208,7 @@ function Ribbon({ d, live, toClose, sold, of, paid, price, priceWord }: { d: Auc
         ))}
       </dl>
       <div className="flex shrink-0 items-center gap-3 max-lg:absolute max-lg:right-3 max-lg:top-3">
-        <StatePill state={d.state === "OPEN" && Date.now() / 1000 >= d.T_submit ? "FROZEN" : d.finished ? "SETTLED" : d.state} live={live} testid="ticket-light" />
+        <StatePill state={d.state === "OPEN" && Date.now() / 1000 >= d.T_submit ? "FROZEN" : d.owed ? "OWED" : d.finished ? "SETTLED" : d.state} live={live} testid="ticket-light" />
       </div>
     </div>
   );
@@ -286,7 +287,7 @@ function Sealed({ d, live, toClose }: { d: AuctionDetail; live: boolean; toClose
       </div>
       <div>
         <div className="serif-figure text-[24px] text-[#f3eee2]">{n ? `${n} sealed ${n === 1 ? "bid" : "bids"}` : live ? "Sealed bids land here" : "Waiting for the committed bids"}</div>
-        <p className="mt-1 max-w-[440px] text-[13px] text-app-muted">{live && toClose ? `Bidding closes in ${clock(toClose)}. ` : ""}{Date.now() / 1000 < d.release ? `Every price stays sealed until the bids open together ${rel(d.release)}, at ${when(d.release)}. Nobody, the operator included, can read one before then.` : (d as any).stopped ? `This round stopped before its bids were opened, so nothing was paid out. Every deposit can be refunded: open your recovery file under My bids.` : `The opening is running late: drand published round ${d.R.toLocaleString("en-US")} at ${when(d.release)}, and the bids open as soon as the operator's runner reaches this round. Nobody has read them meanwhile.`}</p>
+        <p className="mt-1 max-w-[440px] text-[13px] text-app-muted">{live && toClose ? `Bidding closes in ${clock(toClose)}. ` : ""}{Date.now() / 1000 < d.release ? `Every price stays sealed until the bids open together ${rel(d.release)}, at ${when(d.release)}. Nobody, the operator included, can read one before then.` : (d as any).stopped ? `This round stopped before its bids were opened, so nothing was paid out. Every deposit can be refunded: open your recovery file under My bids.` : `drand published round ${d.R.toLocaleString("en-US")} at ${when(d.release)}, so anyone can now decrypt the frozen bids and check them. This service hasn't published the result yet.`}</p>
       </div>
     </div>
   );
@@ -371,7 +372,7 @@ function Activity({ d }: { d: AuctionDetail & { freeze?: any } }) {
 
 function BidsTable({ d, allocations, sells, opened }: { d: AuctionDetail; allocations: any[]; sells: boolean; opened: boolean }) {
   const m: any = d.manifest;
-  if (!opened) return <p className="p-4 text-[13px] text-app-muted">{d.leaf_count ? `${d.leaf_count} sealed bids. ` : ""}Prices stay sealed until the bids open, {rel(d.release)}.</p>;
+  if (!opened) return <p className="p-4 text-[13px] text-app-muted">{d.leaf_count ? `${d.leaf_count} sealed bids. ` : ""}{Date.now() / 1000 < d.release ? <>Prices stay sealed until the bids open, {rel(d.release)}.</> : <>The time lock opened {rel(d.release)}; anyone can decrypt these bids now. The result isn't published yet.</>}</p>;
   const lotName = (h: string) => { const i = (m.lots ?? []).indexOf(h); return i >= 0 ? (d.lot_names?.[i] ?? `Lot ${i + 1}`) : "—"; };
   const rowPaid = (a: any) => d.mode === "otc" && a.side === "buyer" && Number(a.fill) ? Number(d.C_zats) - Number(a.refund_zats ?? 0) : Number(a.payment_zats ?? 0);
   return (

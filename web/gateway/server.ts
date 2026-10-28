@@ -11,7 +11,8 @@ import path from "node:path";
 import { execFile, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { checkPublicAuction, freezeBoard, loadPublicAuction, receiptShow, resultHash } from "../../api/public-auction";
-import { deriveClaimOpenings } from "../../cli/published-beacon";
+import { deriveClaimOpenings, publishedClient } from "../../cli/published-beacon";
+import { openSealedBid } from "../../envelope/opening";
 import { tarDirectory } from "./tar";
 import { Intake } from "./intake";
 import { Runner } from "./runner";
@@ -75,6 +76,8 @@ function load(id: string, dir: string): Entry | null {
       supply: m.supply, C_zats: m.C_zats, T_submit: m.T_submit, T_freeze: m.T_freeze, R: m.drand.R, release: release(m.drand.R),
       leaf_count: pub.frozen?.leaf_count ?? null, clearing_price_zats: (pub.result as any)?.clearing_price_zats ?? null,
       settled: Boolean(pub.settlement), live: runner?.isLive(id) ?? false, updated: Math.floor(mtime / 1000),
+      // Refunds the signers could not pay yet (exception rows): a round with any is never shown as finished.
+      owed: (() => { const rows = ((pub.settlement as any)?.rows ?? []).filter((r: any) => r.state === "exception"); return rows.length ? { count: rows.length, zats: rows.reduce((n: number, r: any) => n + Number(r.amount_zats ?? 0), 0) } : null; })(),
       // The outcome as published: units (or lots) filled out of how many, and what the winners paid in total. A drop
       // clears each lot at its own price, so its scalar clearing price is 0; "filled" says what actually sold.
       outcome: pub.result ? (() => { const al: any[] = ((pub.result as any).allocations ?? []).filter((x: any) => MODE(m) !== "otc" || x.side === "buyer"); return { filled: al.reduce((n, x) => n + Number(x.fill ?? 0), 0), of: Array.isArray(m.lots) ? m.lots.length : m.supply, paid_zats: String(al.reduce((n, x) => n + (Number(x.fill ?? 0) ? Number(x.payment_zats ?? 0) : 0), 0)) }; })() : null,
@@ -85,16 +88,41 @@ function load(id: string, dir: string): Entry | null {
   } catch { return null; }
 }
 
+// The site runs the same checks as the downloadable verifier: it authenticates the published beacon, re-derives every
+// frozen bid's opening from its ciphertext, refuses a published opening that differs, and only then runs the record
+// checks on the re-derived openings.
+async function siteChecks(pub: ReturnType<typeof loadPublicAuction>): Promise<{ id: string; error?: string; warn?: string }[]> {
+  const first: { id: string; error?: string }[] = [];
+  if (pub.frozen && pub.beacon) {
+    try {
+      const local = publishedClient(pub.beacon);
+      const derived: any[] = [];
+      for (const leaf of pub.frozen.leaves) {
+        const plaintext = await openSealedBid(leaf.ciphertext_hex, local);
+        derived.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" } : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });
+      }
+      if (pub.opened.length) {
+        if (pub.opened.length !== derived.length) throw new Error("published opening count");
+        const published = new Map(pub.opened.map((o: any) => [o.leaf_index, o]));
+        for (const d of derived) { const p: any = published.get(d.leaf_index); if (!(p && p.plaintext_hex === d.plaintext_hex && (p.error ?? null) === (d.error ?? null))) throw new Error(`opening ${d.leaf_index} published differs from re-derived`); }
+      }
+      pub.opened = derived;
+      first.push({ id: "openings" });
+    } catch (err) { first.push({ id: "openings", error: (err as Error).message.replace(/^ERROR\s*/, "") }); }
+  }
+  let openings: Map<number, string | null>;
+  try { openings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { openings = new Map(); }
+  return [...first, ...checkPublicAuction(pub, { claimOpenings: openings })];
+}
+
 async function detail(e: Entry) {
   if (e.detail && e.detailMtime === e.mtime) return { ...e.detail, live: runner?.isLive(e.id) ?? false, free_slots: runner?.freeSlots(e.id) ?? null };
   const pub = loadPublicAuction(e.dir);
-  let openings: Map<number, string | null>;
-  try { openings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { openings = new Map(); }
   // Each check with what it concluded: passed, failed, a warning, or not applicable to this round (a launch-only or
   // bond-only check on a round without one returns early in the verifier; it proves nothing here and says so).
   const pm: any = pub.manifest, launch = (pm.clearing?.mode ?? "uniform") === "launch", bond = Boolean(pm.bond);
   const notApplicable = (id: string) => ((id === "delivery" || id === "delivery-list") && !launch) || ((id === "balances" || id === "balance-refs" || id === "defaults") && !bond);
-  const checks = checkPublicAuction(pub, { claimOpenings: openings }).map((c) => ({ id: c.id, ok: !c.error, detail: c.error ?? c.warn ?? "",
+  const checks = (await siteChecks(pub)).map((c) => ({ id: c.id, ok: !c.error, detail: c.error ?? c.warn ?? "",
     status: c.error ? "failed" : notApplicable(c.id) ? "not_applicable" : c.warn ? "warning" : "passed" }));
   const s: any = pub.settlement;
   const d = {
@@ -150,9 +178,7 @@ async function tamper(e: Entry, kind: string) {
     let pub: ReturnType<typeof loadPublicAuction>;
     try { pub = loadPublicAuction(dir, { signer: real.signer }); }
     catch (err) { return { kind, label: t.label, applicable: true, refused: true, stage: "load", reason: (err as Error).message.replace(/^ERROR\s*/, "") }; }
-    let openings: Map<number, string | null>;
-    try { openings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { openings = new Map(); }
-    const failed = checkPublicAuction(pub, { claimOpenings: openings }).filter((c) => c.error).map((c) => ({ id: c.id, detail: c.error }));
+    const failed = (await siteChecks(pub)).filter((c) => c.error).map((c) => ({ id: c.id, detail: c.error }));
     return { kind, label: t.label, applicable: true, refused: failed.length > 0, stage: "checks", failed };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
@@ -201,7 +227,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${HOST}`), parts = url.pathname.split("/").filter(Boolean);
     if (parts[0] === "api") {
       if (parts[1] === "auctions" && parts.length === 2 && req.method === "GET") {
-        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.leaf_count == null && x.state === "OPEN" ? { ...x, counted: intake.admitted(x.id), free_slots: runner?.freeSlots(x.id) ?? null } : x).map((x: any) => x.state === "SETTLED" ? x : runner?.stopped(x.id) ? { ...x, stopped: true } : runner?.finished(x.id) ? { ...x, finished: true } : x);
+        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.leaf_count == null && x.state === "OPEN" ? { ...x, counted: intake.admitted(x.id), free_slots: runner?.freeSlots(x.id) ?? null } : x).map((x: any) => x.owed ? x : x.state === "SETTLED" ? x : runner?.stopped(x.id) ? { ...x, stopped: true } : runner?.finished(x.id) ? { ...x, finished: true } : x);
         list.sort((a: any, b: any) => Number(b.live) - Number(a.live) || b.updated - a.updated);
         return json(res, 200, list);
       }
@@ -260,7 +286,7 @@ const server = http.createServer(async (req, res) => {
       if (parts[1] === "auctions" && /^[0-9a-f]{64}$/.test(parts[2] ?? "")) {
         const id = parts[2], reg = registry().find((r) => r.id === id), e = reg && load(id, reg.dir);
         if (!e) return json(res, 404, { error: "unknown auction" });
-        if (parts.length === 3 && req.method === "GET") { const d1: any = await detail(e), d0: any = { ...d1, lot_names: runner?.lotNames(id) ?? null }, d: any = d0.leaf_count == null && d0.state === "OPEN" ? { ...d0, counted: intake.admitted(id) } : d0; return json(res, 200, d.state === "SETTLED" ? d : runner?.stopped(id) ? { ...d, stopped: true } : runner?.finished(id) ? { ...d, finished: true } : d); }
+        if (parts.length === 3 && req.method === "GET") { const d1: any = await detail(e), d0: any = { ...d1, lot_names: runner?.lotNames(id) ?? null }, d: any = d0.leaf_count == null && d0.state === "OPEN" ? { ...d0, counted: intake.admitted(id) } : d0; return json(res, 200, d.owed || d.state === "SETTLED" ? d : runner?.stopped(id) ? { ...d, stopped: true } : runner?.finished(id) ? { ...d, finished: true } : d); }
         if (parts[3] === "packet") { const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")); return json(res, 200, { manifest: doc.manifest, signer: doc.signer }); }
         if (parts[3] === "doc") return file(res, path.join(e.dir, "auction.json"));
         if (parts[3] === "tamper" && req.method === "GET") {

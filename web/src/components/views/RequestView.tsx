@@ -22,7 +22,9 @@ export default function RequestView() {
   const [d, setD] = useState<AuctionDetail | null>(null);
   const [mine, setMine] = useState(partyFor(rid));
   const [err, setErr] = useState("");
+  const validLink = /^[0-9a-f]{16}$/.test(rid);
   useEffect(() => {
+    if (!validLink) return;
     let gone = false;
     const load = () => api.request(rid, token).then(async (x) => { if (gone) return; setR(x); setDown(false); if (x.auction_id) setD(await api.auction(x.auction_id).catch(() => null)); })
       .catch((e) => { if (gone) return; if (/: 404 /.test(String((e as Error).message))) setR((old) => old ?? null); else { setDown(true); setR((old) => old ?? undefined); } });
@@ -30,6 +32,7 @@ export default function RequestView() {
     const t = window.setInterval(load, 10_000);
     return () => { gone = true; window.clearInterval(t); };
   }, []);
+  if (!validLink) return <div className="py-16"><h1>This round link is incomplete</h1><p className="mt-2 text-app-muted">A round's link names the round it belongs to, and this one doesn't. Your rounds and bids are listed under My activity.</p><div className="mt-6 flex gap-3"><Btn href="/mine/">My activity</Btn><Btn href="/start/" kind="secondary">Start a round</Btn></div></div>;
   if (r === undefined) return down
     ? <div className="py-16"><h1>We couldn't load this round</h1><p className="mt-2 text-app-muted">The service didn't answer. Your round is saved; check again in a moment.</p><div className="mt-6"><Btn onClick={() => location.reload()}>Check again</Btn></div></div>
     : <h1 className="py-16 text-app-muted">Loading…</h1>;

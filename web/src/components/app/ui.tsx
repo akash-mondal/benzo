@@ -41,7 +41,7 @@ export function Pill({ kind = "plain", children, testid }: { kind?: keyof typeof
 export const STATE: Record<string, { word: string; kind: keyof typeof PILL }> = {
   OPEN: { word: "Taking bids", kind: "live" }, FROZEN: { word: "Bids closed", kind: "wait" }, "SEALED-WAIT": { word: "Waiting to open", kind: "wait" },
   OPENED: { word: "Opened", kind: "wait" }, CLEARED: { word: "Cleared", kind: "wait" }, SETTLING: { word: "Paying out", kind: "wait" },
-  SETTLED: { word: "Settled", kind: "good" }, CANCELLED: { word: "Refunded", kind: "bad" }, REFUNDING: { word: "Refunding", kind: "bad" }, DRAFT: { word: "Draft", kind: "plain" },
+  SETTLED: { word: "Settled", kind: "good" }, OWED: { word: "Refunds owed", kind: "bad" }, CANCELLED: { word: "Refunded", kind: "bad" }, REFUNDING: { word: "Refunding", kind: "bad" }, DRAFT: { word: "Draft", kind: "plain" },
 };
 export const StatePill = ({ state, live, testid }: { state: string; live?: boolean; testid?: string }) => {
   const s = live ? STATE.OPEN : STATE[state] ?? { word: state, kind: "plain" as const };
@@ -108,7 +108,7 @@ export const rel = (unix: number, now = Date.now() / 1000) => {
 
 // What each of `benzo verify`'s checks proves, in plain words.
 export const CHECK: Record<string, string> = {
-  manifest: "The round's terms are signed by its operator", witness: "Two witnesses signed the frozen bids", freeze: "The frozen set of bids is complete and unchanged",
+  openings: "Every opening re-derived from its sealed bid and the public beacon", manifest: "The round's terms are signed by its operator", witness: "Two witnesses signed the frozen bids", freeze: "The frozen set of bids is complete and unchanged",
   receipts: "Every counted bid has a signed receipt", "missing-deposits": "No paid deposit was left out", clear: "The result follows from the opened bids",
   envelope: "Refund addresses stayed sealed", report: "The signers' opening reports agree", projection: "The summary matches the full record",
   accounting: "Money in equals money out", "accounting-strays": "Stray payments are accounted for", balances: "Balance payments are accounted for",

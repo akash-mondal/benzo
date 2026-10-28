@@ -14,7 +14,7 @@ export const started = () => read<Started[]>("benzo:started", []);
 export const addStarted = (s: Started) => write("benzo:started", [s, ...started().filter((x) => x.rid !== s.rid)]);
 
 // Every bid attempt this browser sealed. Each attempt is kept under its own key, benzo:bid:<round id>:<attempt>, and is
-// never deleted once sealed (a deposit may already be on its way); benzo:bid-current:<round id> points at the attempt
+// kept until the bidder removes it from the bid page after the round finishes (a deposit may be on its way before then); benzo:bid-current:<round id> points at the attempt
 // the bid page shows. Older single-key records (benzo:bid:<round id>) are read as one attempt.
 export type Attempt = { step: "pay" | "track"; bid: any; txid?: string; savedKey?: boolean; at?: number; archived?: boolean };
 const ROUND = (k: string) => k.slice(10, 74);
@@ -26,5 +26,7 @@ export const saveAttempt = (id: string, a: Attempt, key?: string) => {
   const k = key ?? `benzo:bid:${id}:${String(a.bid?.ciphertext_hash ?? Date.now()).slice(0, 12)}`;
   write(k, { at: Date.now(), ...a }); localStorage.setItem(`benzo:bid-current:${id}`, k); return k;
 };
+// Remove one bid (its price and key) from this browser. The recovery file the bidder downloaded still holds both.
+export const forgetAttempt = (id: string, key: string) => { localStorage.removeItem(key); if (localStorage.getItem(`benzo:bid-current:${id}`) === key) localStorage.removeItem(`benzo:bid-current:${id}`); };
 // "Place another bid": the attempt stays on record (archived); the page starts a fresh draft.
 export const archiveCurrent = (id: string) => { const c = currentAttempt(id); if (c) write(c.key, { ...read<Attempt>(c.key, {} as Attempt), archived: true }); localStorage.removeItem(`benzo:bid-current:${id}`); };

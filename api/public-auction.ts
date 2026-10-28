@@ -407,6 +407,17 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     for (const [i, packet] of pub.receipts.entries()) {
       requireThat(receiptMember(packet, pub.frozen, pub.signer), `receipt ${i} not a member`);
     }
+    // A product round (its terms pin the signers' envelope keys) publishes exactly one admission receipt per frozen
+    // bid: every counted bid has its signed receipt, and none is listed twice.
+    if (Array.isArray((pub.manifest as any).envelope_keys)) {
+      const seen = new Set<number>();
+      for (const packet of pub.receipts) {
+        const leaf = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8")).leaf_index;
+        requireThat(Number.isSafeInteger(leaf) && !seen.has(leaf), `admission receipt for leaf ${leaf} listed twice`);
+        seen.add(leaf);
+      }
+      for (const l of pub.frozen.leaves) requireThat(seen.has(l.leaf_index), `frozen leaf ${l.leaf_index} has no admission receipt`);
+    }
   });
   run("clear", () => {
     const result = pub.result, resultBytes = pub.resultBytes;

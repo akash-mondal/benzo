@@ -10,9 +10,9 @@ import { Glyph, Pager, Pill, claimDoor, cx, useFitRows, LotArt } from "../app/ui
 import type { AuctionSummary } from "../../lib/types";
 
 // Stage, from the round's own state (never guessed from its age).
-const stageOf = (a: AuctionSummary) => (a.live && a.free_slots === 0 ? "full" : a.live ? "open" : a.state === "SETTLED" || a.finished ? "settled" : a.state === "CANCELLED" ? "cancelled" : a.stopped ? "stopped" : "running");
-const STAGE: Record<string, [string, "live" | "wait" | "good" | "plain"]> = { open: ["Taking bids", "live"], full: ["Full", "plain"], running: ["In progress", "wait"], settled: ["Settled", "good"], cancelled: ["Cancelled", "plain"], stopped: ["Stopped", "plain"] };
-const TABS: [string, string][] = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["cancelled", "Cancelled"], ["stopped", "Stopped"]];
+const stageOf = (a: AuctionSummary) => (a.live && a.free_slots === 0 ? "full" : a.live ? "open" : a.owed ? "owed" : a.state === "SETTLED" || a.finished ? "settled" : a.state === "CANCELLED" ? "cancelled" : a.stopped ? "stopped" : "running");
+const STAGE: Record<string, [string, "live" | "wait" | "good" | "plain"]> = { open: ["Taking bids", "live"], full: ["Full", "plain"], running: ["In progress", "wait"], settled: ["Settled", "good"], owed: ["Refunds owed", "plain"], cancelled: ["Cancelled", "plain"], stopped: ["Stopped", "plain"] };
+const TABS: [string, string][] = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["owed", "Refunds owed"], ["cancelled", "Cancelled"], ["stopped", "Stopped"]];
 const order = (l: AuctionSummary[]) => [...l].sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated);
 const local = (unix: number) => {
   const d = new Date(unix * 1000), hm = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

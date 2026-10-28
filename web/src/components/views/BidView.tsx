@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { api, MODE_NAME, short, zec } from "../../lib/api";
 import { glyphFor } from "../../lib/glyphs";
-import { archiveCurrent, attemptsFor, currentAttempt, partyFor, saveAttempt, type Attempt, type PartyKey } from "../../lib/mine";
+import { archiveCurrent, attemptsFor, currentAttempt, forgetAttempt, partyFor, saveAttempt, type Attempt, type PartyKey } from "../../lib/mine";
 import { piecesFor, specterUri } from "../../lib/specter";
 import { Btn, Glyph, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats, LotArt } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
@@ -279,6 +279,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
   const [copied, setCopied] = useState("");
   const demo = useDemo();
   const [demoBusy, setDemoBusy] = useState("");
+  const [demoPaid, setDemoPaid] = useState(""); // the demo wallet's txid once it has paid; it never pays this bid twice
   const b = s.bid;
   useEffect(() => { QRCode.toDataURL(b.uri, { margin: 2, width: 640, color: { dark: "#000000", light: "#ffffff" }, errorCorrectionLevel: "L" }).then(setQr).catch(() => setQr("")); }, [b.uri]);
   const keyFile = () => {
@@ -314,8 +315,13 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
         if (i === 40) setDemoBusy("Still sending: the demo wallet pays one deposit at a time, so this can take a few minutes when several people pay at once…");
       }
       if (!t) throw new Error("the demo payment is taking too long; check My activity later");
-      setTxid(t); setDemoBusy("Paid. Recording your deposit…");
-      await api.submit(round.id, { address: b.address, txid: t, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex, ciphertext_hash: b.ciphertext_hash });
+      setTxid(t); setDemoPaid(t); setDemoBusy("Paid. Recording your deposit…");
+      try {
+        await api.submit(round.id, { address: b.address, txid: t, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex, ciphertext_hash: b.ciphertext_hash });
+      } catch (x) {
+        setErr(`The demo wallet paid (transaction ${short(t)}), but recording it failed: ${String((x as Error).message).replace(/^[^:]*: \d+ /, "")}. Don't pay again: press Track this deposit below to record the same transaction.`);
+        return;
+      }
       onPaid(t);
     } catch (x) { setErr(`The demo wallet couldn't pay: ${String((x as Error).message)}`); } finally { setDemoBusy(""); }
   };
@@ -351,7 +357,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
               <div className="text-[14px] font-medium">No testnet wallet?</div>
               <p className="mt-1 text-[13px] text-app-muted">The demo wallet can pay this deposit for you. It gets only this payment link, so your {role.noun} stays sealed. It does know that this deposit is the one it paid.</p>
               {demo.available
-                ? <div className="mt-3"><Btn kind="secondary" onClick={demoPay} disabled={!!demoBusy || busy} full testid="bid-demo-pay">{demoBusy || "Pay with the demo wallet"}</Btn></div>
+                ? <div className="mt-3"><Btn kind="secondary" onClick={demoPay} disabled={!!demoBusy || busy || !!demoPaid} full testid="bid-demo-pay">{demoBusy || (demoPaid ? "Paid by the demo wallet" : "Pay with the demo wallet")}</Btn></div>
                 : <p className="mt-2 text-[13px] text-app-faint">{demo.reason ?? "The demo wallet can't pay right now."}</p>}
             </div>
           )}
@@ -478,10 +484,17 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
   useEffect(() => { void poll(); const t = window.setInterval(poll, 15_000); return () => window.clearInterval(t); }, []);
   const status = st?.status ?? "";
   if (inSet === false) return <LeftOut round={now} role={role} s={s} said={status === "admitted"} />;
-  const settled = round.state === "SETTLED" || round.state === "CANCELLED";
+  // Everything below follows the freshly polled round, never the copy from when the page loaded.
+  const settled = !(now as any).owed && (now.state === "SETTLED" || now.state === "CANCELLED" || Boolean((now as any).finished));
+  const afterRelease = Date.now() / 1000 >= now.release;
+  const admittedNote = settled ? "The round has finished. See how it turned out."
+    : (now as any).owed ? "The round has opened and paid out, but some refunds are still owed. See how yours did."
+    : now.result ? "The bids have opened. See how yours did; payouts and refunds follow."
+    : afterRelease ? "The time lock has opened, so the bids can be decrypted now. The result follows when this service publishes it."
+    : null;
   const [pill, head, sub] = down
     ? [<Pill kind="bad">Status unavailable</Pill>, "We can't check your deposit right now", `Last successful check: ${checked ? new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "none yet"}. Your transaction id is saved. Don't send another deposit.`]
-    : status === "admitted" ? [<Pill kind="good">Counted</Pill>, `Your ${role.noun} is in`, settled ? "The round has finished. See how it turned out." : `It's ${role.noun} ${Number(st?.leaf_index ?? 0) + 1} of this round, and opens with the others ${rel(round.release)}.`]
+    : status === "admitted" ? [<Pill kind="good">Counted</Pill>, `Your ${role.noun} is in`, admittedNote ?? `It's ${role.noun} ${Number(st?.leaf_index ?? 0) + 1} of this round, and opens with the others ${rel(now.release)}.`]
     : status === "unknown" && !s.txid ? [<Pill kind="plain">No payment recorded</Pill>, "No deposit was recorded for this bid", open ? "If you haven't paid yet, place the bid again from this page and pay before bidding closes. If you paid from your own wallet, the page that sealed it has the transaction id." : "Bidding has closed. If you never paid, there is nothing to do and nothing to refund."]
     : status === "refused" ? [<Pill kind="bad">Not counted</Pill>, `Your ${role.noun} didn't count`, `${st?.detail ?? ""} Your deposit can be refunded with your recovery file.`]
     : [<Pill kind="live">Looking for your deposit</Pill>, "Waiting for your deposit to confirm", `${Date.now() / 1000 >= round.T_submit ? "Bidding has closed, but a deposit you already paid still counts if it confirms before the bids are committed. " : ""}It counts after 10 confirmations, usually 10 to 20 minutes after you pay${s.at ? ` (yours: ${Math.max(0, Math.round((Date.now() - s.at) / 60000))} min so far)` : ""}. ${checked ? `Last checked ${new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}; we check every 15 seconds.` : "Checking now…"} You can close this page; this ${role.noun} stays in My activity.`];
@@ -501,6 +514,12 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
       <div className="grid gap-2">
         {!(typeof location !== "undefined" && location.pathname.startsWith("/auction")) && <Btn href={`/auction/?id=${round.id}&bid=${s.bid.ciphertext_hash}`} full testid="bid-follow">{settled ? "See how it turned out" : "View the round"}</Btn>}
         {open && <button type="button" onClick={onNew} className="text-[13px] text-app-faint hover:text-app-text">Place another {role.noun}</button>}
+        {settled && <button type="button" data-testid="bid-forget" className="text-[13px] text-app-faint hover:text-app-text" onClick={() => {
+          if (!confirm("Remove this bid's price and key from this browser? Your recovery file keeps a copy.")) return;
+          const k = localStorage.getItem(`benzo:bid-current:${round.id}`) ?? attemptsFor(round.id).find((a) => a.bid?.ciphertext_hash === s.bid.ciphertext_hash)?.key;
+          if (k) forgetAttempt(round.id, k);
+          location.href = "/mine/";
+        }}>Remove this bid from this browser</button>}
       </div>
     </div>
   );

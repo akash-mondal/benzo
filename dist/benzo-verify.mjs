@@ -8373,9 +8373,10 @@ function validatePhase5(m2) {
   requireThat(m2.clearing.mode === "buyback" === (m2.buyback !== void 0), "buyback parameters/mode");
   if (m2.buyback !== void 0) {
     requireThat(m2.buyback && typeof m2.buyback === "object" && !Array.isArray(m2.buyback), "buyback parameters");
-    requireThat(Object.keys(m2.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
+    const fields = Object.keys(m2.buyback).sort().join(",");
+    requireThat(fields === "budget_zats,funding_ua,max_price_zats,treasury_ua" || fields === "budget_zats,funding_ua,max_price_zats,treasury_ua_commitment", "buyback field set");
     const ua2 = (a2) => uaShape(a2, m2.network);
-    requireThat(ua2(m2.buyback.treasury_ua) && ua2(m2.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    requireThat(ua2(m2.buyback.funding_ua) && (m2.buyback.treasury_ua === void 0 ? /^[0-9a-f]{64}$/.test(String(m2.buyback.treasury_ua_commitment)) : ua2(m2.buyback.treasury_ua)), "buyback treasury return/funding_ua");
     requireThat(m2.buyback.treasury_ua !== m2.buyback.funding_ua && !(m2.deposit_addresses ?? []).includes(m2.buyback.funding_ua) && !(m2.deposit_addresses ?? []).includes(m2.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     requireThat(m2.bond === void 0, "bond-then-pay is auction-side");
     requireThat(m2.serials === void 0, "serials are uniform auction-side");
@@ -8389,8 +8390,8 @@ function validatePhase5(m2) {
   }
 }
 function treasuryBlock(m2) {
-  const b2 = m2?.clearing?.mode === "buyback" ? m2.buyback : m2?.clearing?.mode === "rfq" && m2.rfq?.treasury_ua ? m2.rfq : null;
-  return b2 ? { budget_zats: b2.budget_zats, treasury_ua: b2.treasury_ua, funding_ua: b2.funding_ua, lots: m2.lots?.length ?? 1 } : null;
+  const b2 = m2?.clearing?.mode === "buyback" ? m2.buyback : m2?.clearing?.mode === "rfq" && (m2.rfq?.treasury_ua || m2.rfq?.treasury_ua_commitment) ? m2.rfq : null;
+  return b2 ? { budget_zats: b2.budget_zats, ...b2.treasury_ua !== void 0 ? { treasury_ua: b2.treasury_ua } : { treasury_ua_commitment: b2.treasury_ua_commitment }, funding_ua: b2.funding_ua, lots: m2.lots?.length ?? 1 } : null;
 }
 function clientBuyback(packet, trustedSigner) {
   const r2 = clientPhase5(packet, trustedSigner);
@@ -8618,10 +8619,14 @@ function clientRFQ(packet, signer) {
   return marketClient(packet, signer, "rfq", (m2) => {
     const r2 = m2.rfq;
     const keys2 = Object.keys(r2 ?? {}).sort().join(","), base = "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,max_price_zats";
-    requireThat(r2 && (keys2 === base || keys2 === "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,funding_ua,max_price_zats,treasury_ua"), "rfq fields");
+    requireThat(r2 && (keys2 === base || keys2 === "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,funding_ua,max_price_zats,treasury_ua" || keys2 === "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,funding_ua,max_price_zats,treasury_ua_commitment"), "rfq fields");
     if (r2.treasury_ua !== void 0) {
       const f2 = r2.funding_ua, t2 = r2.treasury_ua;
       requireThat(uaShape(t2, m2.network) && uaShape(f2, m2.network) && t2 !== f2 && !m2.deposit_addresses.includes(f2) && !m2.deposit_addresses.includes(t2), "rfq treasury_ua/funding_ua");
+    }
+    if (r2.treasury_ua_commitment !== void 0) {
+      const f2 = r2.funding_ua;
+      requireThat(/^[0-9a-f]{64}$/.test(r2.treasury_ua_commitment) && uaShape(f2, m2.network) && !m2.deposit_addresses.includes(f2), "rfq treasury_ua_commitment/funding_ua");
     }
     requireThat(!m2.bond && !m2.lots && !m2.serials && m2.supply === 1 && m2.q_max === 1, "rfq single quote/lot");
     requireThat(Array.isArray(r2.dealer_keys) && r2.dealer_keys.length >= 2 && r2.dealer_keys.every((k2) => /^[0-9a-f]{64}$/.test(k2)) && new Set(r2.dealer_keys).size === r2.dealer_keys.length, "rfq dealer keys");
@@ -18986,6 +18991,15 @@ function checkPublicAuction(pub, opts = {}) {
     for (const [i2, packet] of pub.receipts.entries()) {
       requireThat(receiptMember(packet, pub.frozen, pub.signer), `receipt ${i2} not a member`);
     }
+    if (Array.isArray(pub.manifest.envelope_keys)) {
+      const seen = /* @__PURE__ */ new Set();
+      for (const packet of pub.receipts) {
+        const leaf = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8")).leaf_index;
+        requireThat(Number.isSafeInteger(leaf) && !seen.has(leaf), `admission receipt for leaf ${leaf} listed twice`);
+        seen.add(leaf);
+      }
+      for (const l2 of pub.frozen.leaves) requireThat(seen.has(l2.leaf_index), `frozen leaf ${l2.leaf_index} has no admission receipt`);
+    }
   });
   run2("clear", () => {
     const result = pub.result, resultBytes = pub.resultBytes;
@@ -19484,19 +19498,35 @@ function checkPublicAuction(pub, opts = {}) {
     }
   });
   run2("no-destinations", () => {
-    if (!pub.settlement) return;
+    const m2 = pub.manifest, allowed = /* @__PURE__ */ new Set();
+    const allow = (v2) => {
+      if (typeof v2 === "string") allowed.add(v2.toLowerCase());
+      else if (Array.isArray(v2)) v2.forEach(allow);
+      else if (v2 && typeof v2 === "object") Object.values(v2).forEach(allow);
+    };
+    allow(m2.deposit_addresses);
+    allow(m2.escrow_ua);
+    allow(m2.buyback?.funding_ua);
+    allow(m2.rfq?.funding_ua);
+    allow(m2.bond?.balance_addresses);
+    allow(m2.crosschain);
     const hits = [];
     const walk = (v2, at2) => {
       if (typeof v2 === "string") {
-        if (findSensitive(v2).length) hits.push(at2);
+        if (findSensitive(v2).some((x2) => !allowed.has(x2.value.toLowerCase()))) hits.push(at2);
       } else if (Array.isArray(v2)) v2.forEach((x2, i2) => walk(x2, `${at2}[${i2}]`));
       else if (v2 && typeof v2 === "object") for (const [k2, x2] of Object.entries(v2)) {
         if (findSensitive(k2).length) hits.push(`${at2}.<key>`);
         walk(x2, `${at2}.${k2}`);
       }
     };
+    walk(m2, "manifest");
+    walk(pub.frozen, "frozen");
+    walk(pub.opened, "opened");
+    walk(pub.result, "result");
     walk(pub.settlement, "settlement");
-    requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
+    walk(pub.deliveryList, "delivery_list");
+    requireThat(hits.length === 0, `the public record carries an address at ${hits.slice(0, 3).join(", ")}`);
   });
   if (pub.settlement) {
     const ran = new Set(checks.map((c2) => c2.id)), failed = new Set(checks.filter((c2) => c2.error).map((c2) => c2.id));

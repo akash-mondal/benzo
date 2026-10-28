@@ -254,7 +254,7 @@ export class Runner {
       a.slots = [dkg.escrow_ua, ...addr.addresses.slice(0, slotCount - 1)]; a.fee = addr.addresses[slotCount - 1];
       if (treasuryMode) a.funding_ua = addr.addresses[slotCount];
       const keys = await this.run(["hosts", "keys"]);
-      const ws = await this.run(["witness", "set", "--id", id, "--q", "2", "--keys", keys.witness_keys.join(",")]);
+      const ws = await this.run(["witness", "set", "--id", id, "--q", "3", "--keys", keys.witness_keys.join(",")]);
       const now = Math.floor(Date.now() / 1000);
       a.T_submit = now + spec.submit_min * 60; a.T_freeze = a.T_submit + CONFIRM_MIN * 60;
       const round = await this.run(["drand", "round", "--at", new Date((a.T_freeze + 3 * 60) * 1000).toISOString()]);
@@ -319,7 +319,7 @@ export class Runner {
         a.phase = "frozen"; this.say(a, "frozen");
       }
       if (a.phase === "frozen") {
-        await this.run(["hosts", "witness", "--id", a.id, "--names", "alice,bob"]);
+        await this.run(["hosts", "witness", "--id", a.id, "--names", "alice,bob,carol"]);
         a.phase = "witnessed"; this.say(a, "witness certificates published");
       }
       if (a.phase === "witnessed" && (await this.latestRound()) >= a.R) {

@@ -16,7 +16,7 @@ const WAYS: Way[] = [
   { key: "rfq", mode: "rfq", title: "Commissions", line: "Ask invited artists for sealed quotes. The lowest wins and is paid the second-lowest.", real: "Hiring an artist or an auditor without a public race to the bottom.", match: /^Commission/ },
 ];
 const wayOf = (a: AuctionSummary) => WAYS.find((w) => w.match.test(a.lot ?? ""));
-const done = (a: AuctionSummary) => a.state === "SETTLED" || Boolean(a.finished);
+const done = (a: AuctionSummary) => !a.owed && (a.state === "SETTLED" || Boolean(a.finished));
 const ago = (t: number) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`; };
 // The pieces a settled mint or one-of-ones round sold: numbers drawn from the round, so a round always shows the same ones.
 const piecesOf = (a: AuctionSummary) => /#\s?\d/.test(a.lot ?? "") && Number(a.outcome?.filled ?? 0) > 0 ? [specterNo(a.lot ?? "")] : Array.from({ length: Math.min(6, Number(a.outcome?.filled ?? 0)) }, (_, i) => (hashOf(`${a.id}:${i}`) % 9999) + 1);
