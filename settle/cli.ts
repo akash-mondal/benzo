@@ -260,6 +260,11 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   const onePool=unbuildable&&attempts.every(a=>a.status!==3||/more than one pool/.test(a.stderr||""));
   throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable,isolate,refusedRows,onePool});
 }
+// The builder's {party, output_index} map of this batch's candidate, relayed to the approving hosts so they label each
+// output with the row this batch pays (sign approve: `planned`). Only labels travel; every host still checks each output.
+function plannedMap(batchId:number):{planned?:{party:string;output_index:number}[]} {
+  try{const b=JSON.parse(readFileSync(file(`batch-${batchId}.build.json`),"utf8"));return Array.isArray(b.outputs)?{planned:b.outputs.map((o:any)=>({party:String(o.party),output_index:Number(o.output_index)}))}:{}}catch{return {}}
+}
 async function hostSign(batchId:number,proven:string,signed:string,groupKey:string,reserveRow?:{amount_zats:string}|null) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey,reserveRow))}
 async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string,reserveRow?:{amount_zats:string}|null) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
@@ -270,7 +275,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   for(const s of ["alice","bob","carol"])copyFileSync(file(`batch-${batchId}.sealed-${s}.bin`),path.join(packet,`sealed-${s}.bin`));
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,
-    reserve_return_ua:cfg.routing?.reserve_return_ua??null,...(reserveRow?{reserve_row:reserveRow}:{})}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
+    reserve_return_ua:cfg.routing?.reserve_return_ua??null,...(reserveRow?{reserve_row:reserveRow}:{}),...plannedMap(batchId)}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const failed=new Set<string>(),events:any[]=[],maps:Record<string,any>={};
@@ -399,6 +404,36 @@ async function worker(ledger:Ledger) {
   };
   pinRows();
   ledger.eligible();
+  // A mined batch whose hosts' agreed map names different but interchangeable rows (same recipient and amount) than
+  // the ledger allocated: the hosts' map is the record of who was paid (G-4), so it is adopted (settle/ledger.ts
+  // adopt) instead of parking the batch. Any later batch that lost a row to it has no signed transaction yet; its
+  // cached candidate is dropped so the next run builds it fresh. False when the map can't be adopted.
+  const adoptMapped=(batchId:number,txid:string,height:number,i:any):boolean=>{
+    try {
+      const doc=JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).public_dir),"auction.json"),"utf8"));
+      const wkeys=verifyRecord<any>(doc.witness_set,doc.signer).keys as string[];
+      const pair=agreedBatchMaps(JSON.parse(readFileSync(file(`batch-${batchId}.maps.json`),"utf8")),wkeys,txid);
+      const mined=i.outputs.filter((x:any)=>!x.is_change);
+      const receipt=pair[0].outputs.map((m:any)=>{
+        const hits=mined.filter((x:any)=>x.index===m.output_index);
+        requireThat(hits.length===1,`output ${m.output_index} of the mined batch is not unique`);
+        return {party:String(m.party),amount_zats:String(hits[0].amount_zats),index:hits[0].index,pool:String(hits[0].pool)};
+      });
+      const aside=ledger.adopt(batchId,txid,height,receipt);
+      for(const b of aside)for(const f of [`batch-${b}.build.json`,`batch-${b}.proven.pczt`,`batch-${b}.pulled.pczt`])rmSync(file(f),{force:true});
+      console.error(`WARN batch ${batchId}: mined with the hosts' labels for interchangeable rows; adopted their map (${receipt.map((r:any)=>r.party).join(",")})${aside.length?`; batch ${aside.join(",")} returned for a fresh build`:""}`);
+      return true;
+    } catch(e) {console.error(`ERROR batch ${batchId}: the hosts' map could not be adopted: ${(e as Error).message}`);return false}
+  };
+  if(custody) {
+    // Repair: batches parked before adoption existed (mined, state exception, a staged transaction and the hosts' maps).
+    let repaired=false;
+    for(const b of ledger.db.prepare("SELECT id,txid,height,pczt_path FROM batches WHERE state='exception' AND height IS NOT NULL AND txid IS NOT NULL").all() as {id:number;txid:string;height:number;pczt_path:string|null}[]) {
+      if(!b.pczt_path||!existsSync(b.pczt_path)||!existsSync(file(`batch-${b.id}.maps.json`)))continue;
+      if(adoptMapped(Number(b.id),b.txid,Number(b.height),inspect(b.pczt_path,manifestNet(),true))){writeFileSync(file(`batch-${b.id}.inspect.json`),jsonBytes(inspect(b.pczt_path,manifestNet(),true)),{mode:0o600});repaired=true}
+    }
+    if(repaired){pinRows();ledger.eligible();}
+  }
   // H19 (R105, docs/design/phase7-b47-settle-worker.md §1.3): the fee-reserve preflight. Before the first batch
   // of a run, compare the vault's spendable value with the remaining unpaid obligations plus a fee upper bound
   // of 5,000 x (spendable notes + remaining rows + 2 x remaining batches — each batch and the change re-spend
@@ -665,6 +700,7 @@ async function worker(ledger:Ledger) {
         receipt.push({party:row.party,amount_zats:String(hits[0].amount_zats),index:hits[0].index,pool:String(hits[0].pool)});
       }
       if(!unattributable&&new Set(receipt.map(o=>`${o.pool}:${o.index}`)).size!==receipt.length)unattributable=true;
+      if(unattributable&&adoptMapped(batch.id,staged.txid!,height,i)) {writeInspect(i);pinRows();ledger.eligible();continue;}
       if(unattributable) {
         ledger.park(batch.id,height);
         console.error(`ERROR batch ${batch.id}: ${manualReason}; the mined batch is parked as an exception and its rows wait for manual reconciliation`);

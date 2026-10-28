@@ -252,6 +252,40 @@ export class Ledger {
       this.db.prepare("UPDATE batches SET height=?,state='exception' WHERE id=?").run(height,id);
     });
   }
+  // A mined batch whose two signing hosts' agreed map labels its outputs with different (interchangeable: same
+  // recipient, same amount) rows than this ledger allocated. The hosts' signed map is the record of who was paid
+  // (G-4), so it is adopted: each mapped row is marked paid at its output, provided it is owed (not paid), its amount
+  // equals the output's, and the mapped amounts are exactly the amounts this batch allocated. The batch's rows the
+  // map does not name go back to the queue, and a mapped row allocated to a later batch that has no signed
+  // transaction yet is taken from it; that batch is set aside (returned) so it is rebuilt. Returns the set-aside ids.
+  adopt(id:number,txid:string,height:number,outputs:{party:string;amount_zats:string;index:number;pool:string}[]):number[] {
+    requireThat(Number.isInteger(height)&&height>0,"settlement is not mined");
+    return this.atomic(()=> {
+      const batch=this.batch(id);requireThat(batch?.txid===txid,"adopted transaction differs from staged transaction");
+      requireThat(!batch!.height||batch!.height===height,"adopted batch was already mined at a different height");
+      const mine=this.rows().filter(o=>o.batch===id),all=this.rows();
+      requireThat(outputs.length>0&&new Set(outputs.map(o=>o.party)).size===outputs.length&&new Set(outputs.map(o=>`${o.pool}:${o.index}`)).size===outputs.length,"one mapped row per output");
+      const sorted=(xs:string[])=>JSON.stringify([...xs].sort());
+      requireThat(sorted(outputs.map(o=>o.amount_zats))===sorted(mine.map(o=>o.amount_zats)),"mapped amounts differ from the batch's allocated amounts");
+      const others=new Set<number>();
+      for(const o of outputs) {
+        const r=all.find(x=>x.party===o.party);
+        requireThat(!!r&&r.amount_zats===o.amount_zats&&!["paid","refunded"].includes(r.state)&&Number.isInteger(o.index)&&o.index>=0,`mapped row ${o.party} is not an owed row at that amount`);
+        if(r!.batch!==null&&r!.batch!==id) {const b=this.batch(r!.batch);requireThat(!!b&&!b.txid&&!b.height,`mapped row ${o.party} is in batch ${r!.batch}, which already has a transaction`);others.add(r!.batch)}
+      }
+      for(const b of others) {
+        this.db.prepare("UPDATE obligations SET state='exception',batch=NULL WHERE batch=? AND state='allocated'").run(b);
+        this.db.prepare("UPDATE batches SET state='exception' WHERE id=?").run(b);
+      }
+      for(const r of mine)if(!outputs.some(o=>o.party===r.party))this.db.prepare("UPDATE obligations SET state='exception',batch=NULL WHERE party=?").run(r.party);
+      for(const o of outputs) {
+        const r=all.find(x=>x.party===o.party)!;
+        this.db.prepare("UPDATE obligations SET state=?,batch=?,txid=?,output_index=?,pool=? WHERE party=?").run(r.kind==="refund"?"refunded":"paid",id,txid,o.index,o.pool,o.party);
+      }
+      this.db.prepare("UPDATE batches SET height=?,state='mined' WHERE id=?").run(height,id);
+      return [...others];
+    });
+  }
   confirm(id:number,txid:string,height:number,outputs:{party:string;amount_zats:string;index:number;pool:string}[]) {
     requireThat(Number.isInteger(height)&&height>0,"settlement is not mined");
     this.atomic(()=> {

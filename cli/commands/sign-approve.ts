@@ -128,8 +128,17 @@ export async function run(argv: string[]): Promise<number | object> {
     // gate (and any later one) can check "this host approved that txid with that row at that amount"
     // against its own ledger — the signed map stays {party, output_index} as before.
     const attested: { party: string; output_index: number; amount_zats: string }[] = [];
+    // The builder's own map of this candidate ({party, output_index}, relayed in packet.json as `planned`) names which
+    // row each output pays. Rows with the same recipient and amount are interchangeable for the money, but not for the
+    // ledgers: matching the first such row of the whole auction labelled a later batch's outputs with rows an earlier
+    // batch had paid, and every later batch was refused for good ("already paid by mined batch 1"). So the planned row
+    // is taken when it matches this output exactly; otherwise the first match, as before. Either way the output must
+    // pay an expected row's recipient and amount, each row at most once.
+    const planned: { party: string; output_index: number }[] = Array.isArray((meta as any).planned) ? (meta as any).planned : [];
     for (const out of outputs) {
-      const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
+      const want = planned.find(p => p && p.output_index === out.index)?.party;
+      let i = want ? pool.findIndex(e => e.party === want && e.recipient === out.recipient && e.amount_zats === String(out.amount_zats)) : -1;
+      if (i < 0) i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
       if (i >= 0) {
         const [e] = pool.splice(i, 1);
         // B53 (P3-7, Reviewer R round 4): a `balance-excess:` row's `source` is its party name, so its
