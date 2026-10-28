@@ -24,11 +24,12 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   const [ready, setReady] = useState(false);
   // Until the first fetch lands, an empty list means "not loaded yet", never "no rounds".
   const [loaded, setLoaded] = useState(initial.length > 0);
+  const [failed, setFailed] = useState(false);
   const [market, setMarket] = useState(""), [q, setQ] = useState(""), [tab, setTab] = useState("all"), [page, setPage] = useState(0);
   useEffect(() => {
     const p = new URLSearchParams(location.search);
     setMarket(p.get("market") ?? ""); setQ(p.get("q") ?? ""); setTab(p.get("stage") ?? "all"); setReady(true);
-    const pull = () => api.auctions().then((l) => { setList(order(l)); setLoaded(true); }).catch(() => {});
+    const pull = () => api.auctions().then((l) => { setList(order(l)); setLoaded(true); setFailed(false); }).catch(() => setFailed(true));
     void pull();
     const t = setInterval(() => { if (!document.hidden) void pull(); }, 15_000);
     return () => clearInterval(t);
@@ -121,7 +122,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
                   </a>
                 </li>); })}
             </ul>
-            {match.length === 0 && !loaded && <div className="border-t border-app-line px-4 py-6 text-[14px] text-app-muted" data-testid="rounds-loading">Loading rounds…</div>}
+            {match.length === 0 && !loaded && <div className="border-t border-app-line px-4 py-6 text-[14px] text-app-muted" data-testid="rounds-loading">{failed ? "The service didn't answer. This list tries again every 15 seconds." : "Loading rounds…"}</div>}
             {match.length === 0 && loaded && (
               <div className="border-t border-app-line px-4 py-6 text-[14px] text-app-muted">
                 No {tab === "all" ? "" : tabName + " "}{market ? MODE_NAME[market] + " " : ""}rounds{text ? ` match "${q.trim()}"` : ""}.{" "}
