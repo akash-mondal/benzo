@@ -26,7 +26,7 @@ export function env(name: string): string {
 export const STATE = path.join(ROOT, env("BNZ_STATE_DIR").replace(/^\.\//, ""));
 
 export const H = "/home/benzo/.benzo", NAMES = ["alice", "bob", "carol"] as const;
-// Where the signers dial frostd: OrbStack's host alias, unless BNZ_FROSTD_HOST names another (the host's private hostname).
+// Where the signers dial frostd: OrbStack's host alias, unless BNZ_FROSTD_HOST names another host.
 export const FROSTD = process.env.BNZ_FROSTD_HOST ?? `host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
 // `orb`/`orbctl` calls have hung indefinitely on a VM that answered the next call instantly (live run): they get a
 // 2-minute timeout and up to 3 attempts. A lightwalletd call is bounded as in the product; every other

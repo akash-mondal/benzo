@@ -1,5 +1,4 @@
-// lite-bot.ts: the test-bidder fleet, run inside the one the host server (deploy/render/start.sh, BNZ_FLEET_BOTS) rather
-// than on machines of its own. Each bot has its own testnet wallet and does what the bid page does, with the same code:
+// lite-bot.ts: the test-bidder fleet (BNZ_FLEET_BOTS bots). Each bot has its own testnet wallet and does what the bid page does, with the same code:
 // it takes a deposit address (POST /api/auctions/:id/slot), checks the operator's signature on the round
 // (GET .../packet), builds the order with envelope/bid.ts, seals it with the shipped sealer bundle (seal/dist/main.js,
 // run here with a stand-in for its form instead of a browser), pays the deposit from its own wallet and hands in the

@@ -236,7 +236,7 @@ const server = http.createServer(async (req, res) => {
       // The demo wallet (demo.ts): pays a visitor's sealed deposit link when they have no testnet wallet.
       if (parts[1] === "demo" && parts.length === 2 && req.method === "GET") return json(res, 200, await demo.info(ipOf(req)));
       if (parts[1] === "demo" && parts[2] === "jobs" && /^[0-9a-f]{24}$/.test(parts[3] ?? "")) { const j = demo.job(parts[3]); return j ? json(res, 200, j) : json(res, 404, { error: "unknown demo payment" }); }
-      // Operator diagnostics for a deploy without a shell (the host): the process list, disk use and the signers' error
+      // Operator diagnostics: the process list, disk use and the signers' error
       // logs of recent settlements (hosts never print key material). Only with the operator's BNZ_OPS_TOKEN.
       if (parts[1] === "ops") {
         const want = Buffer.from(process.env.BNZ_OPS_TOKEN ?? ""), got = Buffer.from(String(req.headers["x-ops-token"] ?? ""));
@@ -272,7 +272,6 @@ const server = http.createServer(async (req, res) => {
           try { out.claims = JSON.parse(readFileSync(path.join(dir, "claims.json"), "utf8")).map((c: any) => c.party); } catch { out.claims = null; }
           return json(res, 200, out);
         }
-        if (parts[2] === "shim") { const f = path.join(STATE, "run", "host-shim.log"); return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-200).join("\n") : "" }); }
         return json(res, 404, { error: "not found" });
       }
       // Rounds people start: create, read (the creator's token adds the invite links), and join with a party key.

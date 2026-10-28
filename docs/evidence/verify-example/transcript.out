@@ -5,7 +5,7 @@ $ benzo hosts dkg --id 401f78ba25658a082a1f3fee671e94709f9e51f3c9bc72609281d7d85
 {"group_key":"4344dce2dc759d9f9116928fc04e20e0d7b916703c62a7d4d0c87a4be1b8c33e","escrow_ua":"utest1mgccr5f6vctklrsussd2cgndt5fa6zejwqfwtgtc0nmh69mf5e9527rxnrx0mc266xlarq9c7ez7s37gu6zwswxrvtaslyqu2cycxlc5","keys":["4344dce2dc759d9f9116928fc04e20e0d7b916703c62a7d4d0c87a4be1b8c33e","4344dce2dc759d9f9116928fc04e20e0d7b916703c62a7d4d0c87a4be1b8c33e","4344dce2dc759d9f9116928fc04e20e0d7b916703c62a7d4d0c87a4be1b8c33e"]}
 ## operator 1.2 — public addresses (2 more deposit slots + the fee reserve)
 $ benzo auction addresses --id 401f78ba25658a082a1f3fee671e94709f9e51f3c9bc72609281d7d8522dec7e --count 3
-{"auction_id":"401f78ba25658a082a1f3fee671e94709f9e51f3c9bc72609281d7d8522dec7e","addresses":["utest1ddg975h6kn89r8rz45dta0k6zt0maumtk242ajjsptdjkmkgjex9t037evj2lh33w376ktszu9l79qfzstgar3c8yz8a382fmysjsgrr","utest193a8427jzkjd5kg4ggvkf4sapvd5q0nekr7764656x4tjmalr4jk5gtfspkkc5r2f3w96r2j5g8wfky5f5y9d5ju6ygm6e4cf5jsr8zg","[redacted address 0ef209f4c0]"]}
+{"auction_id":"401f78ba25658a082a1f3fee671e94709f9e51f3c9bc72609281d7d8522dec7e","addresses":["utest1ddg975h6kn89r8rz45dta0k6zt0maumtk242ajjsptdjkmkgjex9t037evj2lh33w376ktszu9l79qfzstgar3c8yz8a382fmysjsgrr","utest193a8427jzkjd5kg4ggvkf4sapvd5q0nekr7764656x4tjmalr4jk5gtfspkkc5r2f3w96r2j5g8wfky5f5y9d5ju6ygm6e4cf5jsr8zg","utest12xw00nz2000x0qxca5w0zhztr6702yyzrgju4vullpcxr9lwlgyqc0a492g703xq0dc838mgq50duq3uft8gm2zn2mv957pn0ut6qj27"]}
 ## operator 1.2 — the seller's own wallet address (seller's wallet, not a vault address)
 seller_ua (from the seller's wallet): utest1ek9k7u4k4c2nrq…
 ## operator 1.3 — the pinned public keys

@@ -1,4 +1,4 @@
-// A round someone started (after the web host's deployment view): where it is now as a list of steps, each with the thing
+// A round someone started (laid out like a deployment view): where it is now as a list of steps, each with the thing
 // to do at that step: send the invite links (OTC, RFQ), join from an invite (this browser makes the party key), fund
 // the budget (buyback, RFQ), then bid.
 import { useEffect, useState } from "react";
