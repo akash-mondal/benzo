@@ -62,7 +62,7 @@ export default function CollectionView({ initial }: { initial: AuctionSummary[] 
           <h1 className="serif-figure text-[40px] leading-tight text-[#f3eee2]">Specters</h1>
           <p className="mt-1 max-w-[62ch] text-[15px] text-app-muted">10,000 pixel ghosts, sold every way a collection sells. Every bid is sealed until its round opens, nobody (the site included) can read one early, and every figure on this page comes from rounds anyone can check.</p>
           <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
-            {fig("Floor (last mint)", floor !== null ? `${zats(floor)} zats` : "—", true)}
+            {fig("Last mint price", floor !== null ? `${zats(floor)} zats` : "—", true)}
             {fig("Pieces sold", String(sold))}
             {fig("Volume", `${zats(volume)} zats`)}
             {fig("Bought back", String(bought))}

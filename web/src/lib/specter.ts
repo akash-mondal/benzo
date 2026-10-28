@@ -72,6 +72,6 @@ export function piecesFor(d: { id: string; lot: string | null; mode: string; man
   if (!isSpecter(d.lot)) return [];
   const lots: string[] | undefined = d.lot_names ?? undefined;
   if (lots?.length) return lots.map((l) => ({ no: specterNo(l), name: l }));
-  if (/mint|buyback/i.test(d.lot ?? "")) return Array.from({ length: Math.min(4, Number(d.manifest?.supply ?? 2)) }, (_, i) => { const no = (hashOf(`${d.id}:${i}`) % 9999) + 1; return { no, name: `#${no}` }; });
+  if (/mint|buyback/i.test(d.lot ?? "")) return Array.from({ length: Math.min(6, Number(d.manifest?.supply ?? 2)) }, (_, i) => { const no = (hashOf(`${d.id}:${i}`) % 9999) + 1; return { no, name: `#${no}` }; });
   return [{ no: specterNo(d.lot ?? ""), name: `#${specterNo(d.lot ?? "")}` }];
 }

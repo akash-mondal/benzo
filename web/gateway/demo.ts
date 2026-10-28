@@ -3,14 +3,14 @@
 // and the sealed memo), and the demo wallet pays it. The server never sees the price: the memo is sealed to a future
 // drand round. It does learn which deposit it paid for, which the page says. Refunds go back to the demo wallet when
 // the visitor uses its address. Payments take a minute (sync, then a proof), so a request returns a job to poll.
-// Limits: BNZ_DEMO_PER_IP_HOUR per address (default 4) and BNZ_DEMO_PER_DAY in all (default 300).
+// Limits: BNZ_DEMO_PER_IP_HOUR per address (default 8: judges at one venue share a network) and BNZ_DEMO_PER_DAY in all (default 300).
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 type Job = { state: "paying" | "paid" | "failed"; txid?: string; error?: string; at: number };
-const PER_IP = Number(process.env.BNZ_DEMO_PER_IP_HOUR ?? 4), PER_DAY = Number(process.env.BNZ_DEMO_PER_DAY ?? 300);
+const PER_IP = Number(process.env.BNZ_DEMO_PER_IP_HOUR ?? 8), PER_DAY = Number(process.env.BNZ_DEMO_PER_DAY ?? 300);
 
 export class DemoWallet {
   private jobs = new Map<string, Job>();
